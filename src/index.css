@@ -1,21 +1,93 @@
 @import "tailwindcss";
 
-@theme {
-  --color-feishu-blue: #3370FF;
-  --color-feishu-blue-hover: #2b5fd9;
-  --color-feishu-bg: #F5F6F7;
-  --color-feishu-border: #DEE0E3;
-  --color-feishu-text-main: #1F2329;
-  --color-feishu-text-secondary: #646A73;
-  --color-feishu-green: #34C724;
-
-  --animate-fade-in: fade-in 0.3s ease-out forwards;
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-}
-
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 中奖弹窗动画 */
+@keyframes bounceIn {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.05); opacity: 1; }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+/* 悬浮呼吸动画 */
+@keyframes float {
+  0% { transform: translateY(0px); box-shadow: 0 5px 15px 0px rgba(0,0,0,0.1); }
+  50% { transform: translateY(-10px); box-shadow: 0 25px 15px 0px rgba(0,0,0,0.05); }
+  100% { transform: translateY(0px); box-shadow: 0 5px 15px 0px rgba(0,0,0,0.1); }
+}
+
+/* 名字极速滚动模糊效果 */
+@keyframes rapidBlur {
+  0% { transform: translateY(20px) scale(0.9); filter: blur(4px); opacity: 0.7; }
+  50% { transform: translateY(0) scale(1.1); filter: blur(2px); opacity: 1; }
+  100% { transform: translateY(-20px) scale(0.9); filter: blur(4px); opacity: 0.7; }
+}
+
+/* 背景动态渐变 */
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.winner-reveal {
+  animation: bounceIn 0.8s cubic-bezier(0.215, 0.610, 0.355, 1.000) both;
+}
+
+.floating {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* 优化后的滚动类，不需要 linear 0.05s，而是利用 JS 快速切换配合视觉残留 */
+.rolling-text {
+  /* 强制开启 GPU 加速 */
+  will-change: transform, opacity, filter;
+  /* 添加垂直方向的动态模糊，模拟高速运动 */
+  filter: blur(1px);
+  /* 轻微的缩放让文字看起来在“跳动” */
+  animation: rapidBlur 0.1s infinite linear;
+}
+
+.raffle-container {
+  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+}
+
+/* 更加柔和的背景，适合办公场景但带点庆典感 */
+.raffle-container-soft {
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #f0f4ff 50%, #e6efff 100%);
+  position: relative;
+}
+
+.raffle-container-soft::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(51, 112, 255, 0.05) 0%, transparent 20%),
+    radial-gradient(circle at 80% 70%, rgba(52, 199, 36, 0.05) 0%, transparent 20%);
+  pointer-events: none;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
 }

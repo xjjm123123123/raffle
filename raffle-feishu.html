@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>抽奖系统</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    :root {
+      --feishu-blue: #3370FF;
+      --feishu-blue-hover: #2b5fd9;
+      --feishu-bg: #F5F6F7;
+      --feishu-border: #DEE0E3;
+      --feishu-text-main: #1F2329;
+      --feishu-text-secondary: #646A73;
+      --feishu-green: #34C724;
+      --feishu-red: #F54A45;
+    }
+    
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    
+    @keyframes fade-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    
+    .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+    .animate-spin { animation: spin 1s linear infinite; }
+    
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 24px;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      z-index: 2000;
+      animation: fade-in 0.3s ease-out;
+    }
+    .toast-success { background: var(--feishu-green); }
+    .toast-error { background: var(--feishu-red); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const API_BASE = 'http://localhost:3002/api';
+
+    const DEFAULT_CONFIG = {
+      appId: 'cli_a922afd6e5b89bc8',
+      appSecret: 'yc0Vf7bE9kA8AmlTn0h6nchyssucONp2',
+      appToken: 'ZY0RbMz6na5PwMsTf2NcKSzsnTd',
+      tableId: 'tbl7SgCO4iXhcijQ',
+      nameField: '姓名',
+      activityField: '活动',
+      wonField: '是否中奖',
+      timeField: '时间'
+    };
+
+    const icons = {
+      Trophy: <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--feishu-blue)' }}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>,
+      Users: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--feishu-text-secondary)' }}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+      Download: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+      Play: <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>,
+      Square: <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>,
+      ChevronDown: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--feishu-text-secondary)' }}><path d="m6 9 6 6 6-6"/></svg>,
+      Refresh: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>,
+      Cloud: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>,
+      Loader: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+    };
+
+    function Toast({ message, type, onClose }) {
+      useEffect(() => { const timer = setTimeout(onClose, 3000); return () => clearTimeout(timer); }, [onClose]);
+      return <div className={`toast toast-${type}`}>{message}</div>;
+    }
+
+    function App() {
+      const [config] = useState(() => {
+        const saved = localStorage.getItem('raffle_config');
+        return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
+      });
+      
+      const [activities, setActivities] = useState([]);
+      const [currentActivityName, setCurrentActivityName] = useState('');
+      const [participants, setParticipants] = useState([]);
+      const [winners, setWinners] = useState([]);
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [currentDisplay, setCurrentDisplay] = useState('');
+      const [currentWinnerId, setCurrentWinnerId] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [toast, setToast] = useState(null);
+      
+      const drawIntervalRef = useRef(null);
+
+      const showToast = useCallback((message, type) => setToast({ message, type }), []);
+
+      const loadActivities = useCallback(async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/activities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: config.appId,
+              appSecret: config.appSecret,
+              appToken: config.appToken,
+              tableId: config.tableId,
+              activityField: config.activityField
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setActivities(data.activities);
+            if (data.activities.length > 0 && !currentActivityName) {
+              setCurrentActivityName(data.activities[0].name);
+            }
+          } else {
+            showToast(data.message, 'error');
+          }
+        } catch (e) {
+          showToast('加载活动失败: ' + e.message, 'error');
+        }
+        setLoading(false);
+      }, [config, currentActivityName, showToast]);
+
+      const loadParticipants = useCallback(async () => {
+        if (!currentActivityName) return;
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/participants`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: config.appId,
+              appSecret: config.appSecret,
+              appToken: config.appToken,
+              tableId: config.tableId,
+              activityName: currentActivityName,
+              nameField: config.nameField,
+              activityField: config.activityField,
+              wonField: config.wonField
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setParticipants(data.participants);
+          } else {
+            showToast(data.message, 'error');
+          }
+        } catch (e) {
+          showToast('加载参与者失败: ' + e.message, 'error');
+        }
+        setLoading(false);
+      }, [config, currentActivityName, showToast]);
+
+      const loadWinners = useCallback(async () => {
+        if (!currentActivityName) return;
+        try {
+          const res = await fetch(`${API_BASE}/winners/list`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: config.appId,
+              appSecret: config.appSecret,
+              appToken: config.appToken,
+              tableId: config.tableId,
+              activityName: currentActivityName,
+              activityField: config.activityField,
+              nameField: config.nameField,
+              timeField: config.timeField,
+              wonField: config.wonField
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setWinners(data.winners);
+          }
+        } catch (e) {
+          console.error('加载中奖记录失败:', e);
+        }
+      }, [config, currentActivityName]);
+
+      useEffect(() => { loadActivities(); }, []);
+
+      useEffect(() => {
+        if (currentActivityName) {
+          loadParticipants();
+          loadWinners();
+        }
+      }, [currentActivityName, loadParticipants, loadWinners]);
+
+      const handleStart = () => {
+        if (participants.length === 0) return;
+        setIsDrawing(true);
+        
+        if (participants.length === 1) {
+          setCurrentDisplay(participants[0].name);
+          setCurrentWinnerId(participants[0].id);
+        }
+
+        drawIntervalRef.current = setInterval(() => {
+          const randomIndex = Math.floor(Math.random() * participants.length);
+          const selected = participants[randomIndex];
+          setCurrentDisplay(selected.name);
+          setCurrentWinnerId(selected.id);
+        }, 50);
+      };
+
+      const handleStop = async () => {
+        if (!isDrawing) return;
+        setIsDrawing(false);
+        if (drawIntervalRef.current) {
+          clearInterval(drawIntervalRef.current);
+          drawIntervalRef.current = null;
+        }
+
+        const winnerName = currentDisplay;
+        const winnerId = currentWinnerId;
+        
+        if (winnerName && winnerId) {
+          const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+          
+          try {
+            const res = await fetch(`${API_BASE}/winners`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                appId: config.appId,
+                appSecret: config.appSecret,
+                appToken: config.appToken,
+                tableId: config.tableId,
+                recordId: winnerId,
+                time: time,
+                fields: {
+                  won: config.wonField,
+                  time: config.timeField
+                }
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              setWinners(prev => [{ id: winnerId, name: winnerName, time, activityName: currentActivityName }, ...prev]);
+              setParticipants(prev => prev.filter(p => p.id !== winnerId));
+              showToast(`${winnerName} 已中奖！`, 'success');
+            } else {
+              showToast('保存中奖记录失败: ' + data.message, 'error');
+            }
+          } catch (e) {
+            showToast('保存中奖记录失败: ' + e.message, 'error');
+          }
+        }
+      };
+
+      const exportWinners = () => {
+        if (winners.length === 0) return;
+        const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+          + "序号,姓名,时间\n"
+          + winners.map((w, i) => `${winners.length - i},${w.name},${w.time}`).join('\n');
+        const link = document.createElement("a");
+        link.href = encodeURI(csvContent);
+        link.download = `${currentActivityName || '抽奖'}_中奖名单.csv`;
+        link.click();
+      };
+
+      useEffect(() => () => { if (drawIntervalRef.current) clearInterval(drawIntervalRef.current); }, []);
+
+      const isLastWinner = currentDisplay && !isDrawing && winners.length > 0 && winners[0].name === currentDisplay;
+
+      const styles = {
+        container: { height: '100vh', width: '100%', display: 'flex', backgroundColor: 'var(--feishu-bg)', color: 'var(--feishu-text-main)', overflow: 'hidden' },
+        sidebar: { width: '320px', backgroundColor: 'white', borderRight: '1px solid var(--feishu-border)', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '1px 0 4px rgba(0,0,0,0.02)', zIndex: 10 },
+        sidebarHeader: { padding: '20px', borderBottom: '1px solid var(--feishu-border)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: 600 },
+        sidebarContent: { padding: '20px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' },
+        select: { width: '100%', appearance: 'none', backgroundColor: 'white', border: '1px solid var(--feishu-border)', borderRadius: '6px', padding: '10px 36px 10px 12px', fontSize: '14px', color: 'var(--feishu-text-main)', cursor: 'pointer', outline: 'none' },
+        selectWrapper: { position: 'relative' },
+        selectIcon: { position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
+        badge: { fontSize: '12px', color: 'var(--feishu-text-secondary)', backgroundColor: 'var(--feishu-bg)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--feishu-border)' },
+        centerArea: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+        drawBox: { width: '640px', height: '400px', backgroundColor: 'white', borderRadius: '16px', border: '1px solid var(--feishu-border)', boxShadow: '0 4px 24px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' },
+        displayName: { fontSize: '64px', fontWeight: 'bold', color: 'var(--feishu-text-main)', letterSpacing: '4px', userSelect: 'none' },
+        congratsBadge: { position: 'absolute', top: '40px', color: 'var(--feishu-green)', fontWeight: 500, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f0fdf4', padding: '6px 16px', borderRadius: '999px', border: '1px solid #bbf7d0' },
+        button: { display: 'flex', alignItems: 'center', gap: '8px', padding: '16px 40px', borderRadius: '6px', fontSize: '18px', fontWeight: 500, border: 'none', cursor: 'pointer', transition: 'all 0.2s' },
+        iconButton: { padding: '8px', color: 'var(--feishu-text-secondary)', background: 'none', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' },
+        rightSidebar: { width: '320px', backgroundColor: 'white', borderLeft: '1px solid var(--feishu-border)', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '-1px 0 4px rgba(0,0,0,0.02)', zIndex: 10 },
+        rightSidebarHeader: { padding: '20px', borderBottom: '1px solid var(--feishu-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+        winnersList: { flex: 1, overflowY: 'auto', padding: '16px' },
+        winnerItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', backgroundColor: 'var(--feishu-bg)', borderRadius: '6px', marginBottom: '8px' },
+        winnerIndex: { fontSize: '12px', fontWeight: 500, color: 'var(--feishu-text-secondary)', width: '24px', textAlign: 'center', backgroundColor: 'white', borderRadius: '4px', padding: '2px 0', border: '1px solid var(--feishu-border)' },
+        winnerName: { fontSize: '14px', fontWeight: 500, color: 'var(--feishu-text-main)' },
+        winnerTime: { fontSize: '12px', color: 'var(--feishu-text-secondary)', fontFamily: 'monospace' },
+        emptyState: { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--feishu-text-secondary)', fontSize: '14px', gap: '12px' },
+        participantList: { flex: 1, overflowY: 'auto', border: '1px solid var(--feishu-border)', borderRadius: '6px', padding: '8px', background: 'white', maxHeight: '300px' },
+        participantItem: { padding: '6px 10px', fontSize: '13px', borderBottom: '1px solid var(--feishu-bg)', display: 'flex', alignItems: 'center', gap: '6px' },
+        statusDot: { width: '6px', height: '6px', borderRadius: '50%', background: 'var(--feishu-green)' }
+      };
+
+      return (
+        <div style={styles.container}>
+          <div style={styles.sidebar}>
+            <div style={styles.sidebarHeader}>
+              {icons.Trophy} 抽奖系统
+            </div>
+            
+            <div style={styles.sidebarContent}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '8px' }}>活动选择</div>
+                <div style={styles.selectWrapper}>
+                  <select 
+                    style={styles.select}
+                    value={currentActivityName}
+                    onChange={(e) => setCurrentActivityName(e.target.value)}
+                    disabled={isDrawing}
+                  >
+                    {activities.length === 0 && <option value="">{loading ? '加载中...' : '暂无活动'}</option>}
+                    {activities.map(act => <option key={act.id} value={act.name}>{act.name}</option>)}
+                  </select>
+                  <div style={styles.selectIcon}>{icons.ChevronDown}</div>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 500 }}>
+                    {icons.Users} 参与名单
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={styles.badge}>{participants.length} 人</span>
+                    <button onClick={loadParticipants} disabled={loading || isDrawing} style={{ ...styles.iconButton, padding: '4px' }} title="刷新">
+                      {loading ? icons.Loader : icons.Refresh}
+                    </button>
+                  </div>
+                </div>
+                <div style={styles.participantList}>
+                  {participants.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--feishu-text-secondary)', fontSize: '13px' }}>
+                      {loading ? '加载中...' : '暂无未中奖参与者'}
+                    </div>
+                  ) : (
+                    participants.map((p, i) => (
+                      <div key={p.id || i} style={{ ...styles.participantItem, borderBottom: i === participants.length - 1 ? 'none' : '1px solid var(--feishu-bg)' }}>
+                        <span style={styles.statusDot}></span>
+                        {p.name}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px', background: '#f0fdf4', borderRadius: '6px', fontSize: '13px', color: 'var(--feishu-green)' }}>
+                {icons.Cloud} 已连接飞书多维表格
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.centerArea}>
+            <div style={styles.drawBox}>
+              <div style={styles.displayName}>{currentDisplay || "等待抽奖"}</div>
+              {isLastWinner && <div style={{ ...styles.congratsBadge, className: 'animate-fade-in' }}>🎉 恭喜中奖 🎉</div>}
+            </div>
+
+            <div style={{ marginTop: '48px' }}>
+              <button 
+                style={{
+                  ...styles.button,
+                  backgroundColor: isDrawing ? 'var(--feishu-red)' : 'var(--feishu-blue)',
+                  color: 'white',
+                  boxShadow: isDrawing ? '0 4px 12px rgba(245,74,69,0.2)' : '0 4px 12px rgba(51,112,255,0.2)',
+                  opacity: participants.length === 0 ? 0.5 : 1,
+                  cursor: participants.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+                onClick={isDrawing ? handleStop : handleStart}
+                disabled={participants.length === 0}
+              >
+                {isDrawing ? <>{icons.Square} 停止滚动</> : <>{icons.Play} 开始抽奖</>}
+              </button>
+            </div>
+          </div>
+
+          <div style={styles.rightSidebar}>
+            <div style={styles.rightSidebarHeader}>
+              <div style={{ fontSize: '16px', fontWeight: 600 }}>中奖记录</div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button onClick={loadWinners} style={styles.iconButton} title="刷新">{icons.Refresh}</button>
+                <button onClick={exportWinners} style={styles.iconButton} title="导出名单">{icons.Download}</button>
+              </div>
+            </div>
+            
+            <div style={styles.winnersList}>
+              {winners.length === 0 ? (
+                <div style={styles.emptyState}>暂无中奖记录</div>
+              ) : (
+                winners.map((winner, idx) => (
+                  <div key={winner.id || idx} style={{ ...styles.winnerItem, className: 'animate-fade-in' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={styles.winnerIndex}>{winners.length - idx}</span>
+                      <span style={styles.winnerName}>{winner.name}</span>
+                    </div>
+                    <span style={styles.winnerTime}>{winner.time}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

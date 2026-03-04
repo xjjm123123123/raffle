@@ -1,257 +1,544 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Layout, Select, Button, Card, Tag, Space, Loading, toast, Empty } from '@universe-design/react';
+import PlayFilled from '@universe-design/icons-react/PlayFilled';
+import PauseFilled from '@universe-design/icons-react/PauseFilled';
+import DownloadOutlined from '@universe-design/icons-react/DownloadOutlined';
+import RefreshOutlined from '@universe-design/icons-react/RefreshOutlined';
+import GroupFilled from '@universe-design/icons-react/GroupFilled';
+import GiftBagFilled from '@universe-design/icons-react/GiftBagFilled';
+import DeleteOutlined from '@universe-design/icons-react/DeleteOutlined';
+import confetti from 'canvas-confetti';
+import '@universe-design/react/es/styles/light.cssvar.less';
+import './index.css';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Trophy, Users, Download, Trash2, Play, Square, ChevronDown } from 'lucide-react';
+const { Content } = Layout;
 
-type Activity = { id: string; name: string };
-type Winner = { id: string; activityId: string; name: string; time: string };
+const API_BASE = 'http://localhost:3004/api';
+
+// 中奖音效 (保留外部文件，因为只需播放一次)
+const AUDIO_WIN = 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3';
+
+const DEFAULT_CONFIG = {
+  appId: 'cli_a922afd6e5b89bc8',
+  appSecret: 'yc0Vf7bE9kA8AmlTn0h6nchyssucONp2',
+  appToken: 'ZY0RbMz6na5PwMsTf2NcKSzsnTd',
+  tableId: 'tbl7SgCO4iXhcijQ',
+  nameField: '姓名',
+  activityField: '活动',
+  wonField: '是否中奖',
+  timeField: '时间',
+  whitelistField: '白名单'
+};
+
+interface Activity {
+  id: string;
+  name: string;
+}
+
+interface Participant {
+  id: string;
+  name: string;
+  isWhitelist?: boolean;
+}
+
+interface Winner {
+  id: string;
+  name: string;
+  time: string;
+  activityName: string;
+}
 
 export default function App() {
-  const [activities] = useState<Activity[]>([
-    { id: '1', name: '2026 年会特等奖' },
-    { id: '2', name: '2026 年会一等奖' },
-    { id: '3', name: '2026 年会二等奖' },
-    { id: '4', name: '阳光普照奖' },
-  ]);
-  const [currentActivityId, setCurrentActivityId] = useState<string>('1');
-  const [participantsText, setParticipantsText] = useState<string>('张三\n李四\n王五\n赵六\n钱七\n孙八\n周九\n吴十\n郑十一\n王十二');
+  const [config] = useState(DEFAULT_CONFIG);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [currentActivityName, setCurrentActivityName] = useState<string>('');
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [winners, setWinners] = useState<Winner[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // 新增处理状态，防止连点
   const [currentDisplay, setCurrentDisplay] = useState<string>('');
+  const [currentWinnerId, setCurrentWinnerId] = useState<string>('');
+  const [loading, setLoading] = useState(false);
   
-  const drawIntervalRef = useRef<number | null>(null);
+  const drawIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const participantsRef = useRef(participants); // 使用 Ref 解决闭包陷阱
 
-  const participantsList = useMemo(() => {
-    return participantsText.split('\n').map(s => s.trim()).filter(Boolean);
-  }, [participantsText]);
-
-  const currentActivityWinners = useMemo(() => {
-    return winners.filter(w => w.activityId === currentActivityId).reverse();
-  }, [winners, currentActivityId]);
-
-  const handleStart = () => {
-    if (participantsList.length === 0) return;
-    setIsDrawing(true);
-    
-    if (participantsList.length === 1) {
-      setCurrentDisplay(participantsList[0]);
-    }
-
-    drawIntervalRef.current = window.setInterval(() => {
-      setCurrentDisplay(prev => {
-        if (participantsList.length <= 1) return participantsList[0] || '';
-        let nextName;
-        do {
-          const randomIndex = Math.floor(Math.random() * participantsList.length);
-          nextName = participantsList[randomIndex];
-        } while (nextName === prev);
-        return nextName;
-      });
-    }, 50);
-  };
-
-  const handleStop = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
-    if (drawIntervalRef.current !== null) {
-      clearInterval(drawIntervalRef.current);
-      drawIntervalRef.current = null;
-    }
-
-    // Capture the final displayed name as the winner
-    setCurrentDisplay(finalName => {
-      if (finalName) {
-        const newWinner: Winner = {
-          id: Math.random().toString(36).substring(2, 9),
-          activityId: currentActivityId,
-          name: finalName,
-          time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
-        };
-        setWinners(prev => [...prev, newWinner]);
-        
-        // Remove winner from participants list
-        setParticipantsText(prevText => {
-          const list = prevText.split('\n').map(s => s.trim()).filter(Boolean);
-          const newList = list.filter(name => name !== finalName);
-          return newList.join('\n');
-        });
-      }
-      return finalName;
-    });
-  };
-
-  const exportWinners = () => {
-    if (currentActivityWinners.length === 0) return;
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-      + "序号,姓名,时间\n"
-      + currentActivityWinners.map((w, i) => `${currentActivityWinners.length - i},${w.name},${w.time}`).join('\n');
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const actName = activities.find(a => a.id === currentActivityId)?.name || '抽奖';
-    link.setAttribute("download", `${actName}_中奖名单.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const clearWinners = () => {
-    if (window.confirm('确定要清空当前活动的中奖记录吗？')) {
-      setWinners(prev => prev.filter(w => w.activityId !== currentActivityId));
-    }
-  };
+  // 同步 participants 到 Ref
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
+  
+  // Web Audio Context for Rolling Sound
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const winAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    // 初始化 Web Audio Context
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    audioContextRef.current = new AudioContext();
+
+    // 初始化中奖音效
+    winAudioRef.current = new Audio(AUDIO_WIN);
+    winAudioRef.current.volume = 0.8;
+
     return () => {
-      if (drawIntervalRef.current !== null) {
-        clearInterval(drawIntervalRef.current);
+      audioContextRef.current?.close();
+      if (winAudioRef.current) {
+        winAudioRef.current.pause();
+        winAudioRef.current = null;
       }
     };
   }, []);
 
+  // 生成短促的机械点击声
+  const playClickSound = useCallback(() => {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    
+    // 创建振荡器
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    // 设置音色：三角波更柔和，不像方波那么刺耳
+    osc.type = 'triangle'; 
+    
+    // 频率：使用音高下滑 (Pitch Drop) 模拟物理打击感
+    // 从 400Hz 快速滑落到 100Hz，产生类似 "Tick" 的声音
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.05);
+    
+    // 包络：保持短促
+    gain.gain.setValueAtTime(0.1, ctx.currentTime); // 稍微提高一点音量，因为三角波能量较低
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+    
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.05);
+  }, []);
+
+  const loadActivities = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/activities`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: config.appId,
+          appSecret: config.appSecret,
+          appToken: config.appToken,
+          tableId: config.tableId,
+          activityField: config.activityField
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActivities(data.activities);
+        if (data.activities.length > 0 && !currentActivityName) {
+          setCurrentActivityName(data.activities[0].name);
+        }
+      } else {
+        toast.error(data.message || '加载活动失败');
+      }
+    } catch (e) {
+      toast.error('加载活动失败: ' + (e as Error).message);
+    }
+    setLoading(false);
+  }, [config, currentActivityName]);
+
+  const loadParticipants = useCallback(async () => {
+    if (!currentActivityName) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: config.appId,
+          appSecret: config.appSecret,
+          appToken: config.appToken,
+          tableId: config.tableId,
+          activityName: currentActivityName,
+          nameField: config.nameField,
+          activityField: config.activityField,
+          wonField: config.wonField,
+          whitelistField: config.whitelistField
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setParticipants(data.participants);
+      } else {
+        toast.error(data.message || '加载参与者失败');
+      }
+    } catch (e) {
+      toast.error('加载参与者失败: ' + (e as Error).message);
+    }
+    setLoading(false);
+  }, [config, currentActivityName]);
+
+  const loadWinners = useCallback(async () => {
+    if (!currentActivityName) return;
+    try {
+      const res = await fetch(`${API_BASE}/winners/list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: config.appId,
+          appSecret: config.appSecret,
+          appToken: config.appToken,
+          tableId: config.tableId,
+          activityName: currentActivityName,
+          activityField: config.activityField,
+          nameField: config.nameField,
+          timeField: config.timeField,
+          wonField: config.wonField
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWinners(data.winners);
+      }
+    } catch (e) {
+      console.error('加载中奖记录失败:', e);
+    }
+  }, [config, currentActivityName]);
+
+  useEffect(() => {
+    loadActivities();
+  }, []);
+
+  useEffect(() => {
+    if (currentActivityName) {
+      loadParticipants();
+      loadWinners();
+    }
+  }, [currentActivityName, loadParticipants, loadWinners]);
+
+  const handleStart = () => {
+    if (participants.length === 0 || isProcessing) return;
+    setIsDrawing(true);
+    
+    // 恢复 AudioContext (解决浏览器自动挂起策略)
+    if (audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    
+    // 立即随机选中一个作为初始状态
+    const initialIndex = Math.floor(Math.random() * participants.length);
+    const initialSelected = participants[initialIndex];
+    setCurrentDisplay(initialSelected.name);
+    setCurrentWinnerId(initialSelected.id);
+    
+    // 使用 participantsRef.current 确保 interval 读取的是最新数据
+    drawIntervalRef.current = setInterval(() => {
+      const currentList = participantsRef.current;
+      if (currentList.length === 0) return;
+
+      const randomIndex = Math.floor(Math.random() * currentList.length);
+      const selected = currentList[randomIndex];
+      setCurrentDisplay(selected.name);
+      setCurrentWinnerId(selected.id);
+      
+      playClickSound();
+    }, 30);
+  };
+
+  const handleStop = async () => {
+    if (!isDrawing || isProcessing) return;
+    setIsProcessing(true); // 锁定状态，防止重复点击
+    setIsDrawing(false);
+    
+    if (drawIntervalRef.current) {
+      clearInterval(drawIntervalRef.current);
+      drawIntervalRef.current = null;
+    }
+
+    // 决定最终中奖者
+    let finalWinnerId = currentWinnerId;
+    let finalWinnerName = currentDisplay;
+
+    // 使用 Ref 获取最新的 participants
+    const currentParticipants = participantsRef.current;
+    const whitelistParticipants = currentParticipants.filter(p => p.isWhitelist);
+    
+    // 如果当前选中的 ID 不在最新的列表中（理论上不应发生），重新选一个
+    if (!currentParticipants.find(p => p.id === finalWinnerId) && currentParticipants.length > 0) {
+        const fallback = currentParticipants[0];
+        finalWinnerId = fallback.id;
+        finalWinnerName = fallback.name;
+    }
+
+    if (whitelistParticipants.length > 0) {
+      const randomWhitelist = whitelistParticipants[Math.floor(Math.random() * whitelistParticipants.length)];
+      finalWinnerId = randomWhitelist.id;
+      finalWinnerName = randomWhitelist.name;
+      
+      setCurrentDisplay(finalWinnerName);
+      setCurrentWinnerId(finalWinnerId);
+      
+      console.log(`[白名单生效] 选中: ${finalWinnerName}`);
+    } else {
+      console.log(`[普通抽奖] 选中: ${finalWinnerName}`);
+    }
+    
+    if (finalWinnerName && finalWinnerId) {
+      // 播放中奖音效
+      if (winAudioRef.current) {
+        winAudioRef.current.currentTime = 0;
+        winAudioRef.current.play().catch(e => console.warn('Audio play failed:', e));
+      }
+
+      // 触发烟花效果
+      const duration = 3000;
+      const end = Date.now() + duration;
+
+      (function frame() {
+        confetti({
+          particleCount: 5,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0 },
+          colors: ['#3370FF', '#34C724', '#F54A45', '#FF8800']
+        });
+        confetti({
+          particleCount: 5,
+          angle: 120,
+          spread: 55,
+          origin: { x: 1 },
+          colors: ['#3370FF', '#34C724', '#F54A45', '#FF8800']
+        });
+
+        if (Date.now() < end) {
+          requestAnimationFrame(frame);
+        }
+      }());
+
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      
+      try {
+        const res = await fetch(`${API_BASE}/winners`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appId: config.appId,
+            appSecret: config.appSecret,
+            appToken: config.appToken,
+            tableId: config.tableId,
+            recordId: finalWinnerId,
+            time: time,
+            fields: {
+              won: config.wonField,
+              time: config.timeField
+            }
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setWinners(prev => [{ id: finalWinnerId, name: finalWinnerName, time, activityName: currentActivityName }, ...prev]);
+          setParticipants(prev => prev.filter(p => p.id !== finalWinnerId));
+          toast.success(`${finalWinnerName} 已中奖！`);
+        } else {
+          toast.error('保存中奖记录失败: ' + data.message);
+        }
+      } catch (e) {
+        toast.error('保存中奖记录失败: ' + (e as Error).message);
+      } finally {
+        setIsProcessing(false); // 解锁状态
+      }
+    } else {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!currentActivityName) return;
+    if (!window.confirm(`确定要重置“${currentActivityName}”的所有中奖记录吗？\n\n此操作将：\n1. 清空当前活动的中奖列表\n2. 恢复所有中奖者的未中奖状态\n3. 允许他们再次参与抽奖`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/winners/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: config.appId,
+          appSecret: config.appSecret,
+          appToken: config.appToken,
+          tableId: config.tableId,
+          activityName: currentActivityName,
+          activityField: config.activityField,
+          wonField: config.wonField,
+          timeField: config.timeField
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`已重置 ${data.count} 条记录`);
+        setWinners([]); 
+        loadParticipants();
+      } else {
+        toast.error('重置失败: ' + data.message);
+      }
+    } catch (e) {
+      toast.error('重置失败: ' + (e as Error).message);
+    }
+    setLoading(false);
+  };
+
+  const exportWinners = () => {
+    if (winners.length === 0) return;
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + "序号,姓名,时间\n"
+      + winners.map((w, i) => `${winners.length - i},${w.name},${w.time}`).join('\n');
+    const link = document.createElement("a");
+    link.href = encodeURI(csvContent);
+    link.download = `${currentActivityName || '抽奖'}_中奖名单.csv`;
+    link.click();
+  };
+
+  useEffect(() => () => {
+    if (drawIntervalRef.current) clearInterval(drawIntervalRef.current);
+  }, []);
+
+  const isLastWinner = currentDisplay && !isDrawing && winners.length > 0 && winners[0].name === currentDisplay;
+
+  const activityOptions = activities.map(act => ({
+    value: act.name,
+    label: act.name
+  }));
+
+  const handleContentClick = (e: React.MouseEvent) => {
+    // 只有点击背景时才触发
+    if (e.target === e.currentTarget && participants.length > 0 && !isProcessing) {
+      if (isDrawing) {
+        handleStop();
+      } else {
+        handleStart();
+      }
+    }
+  };
+
   return (
-    <div className="h-screen w-full flex bg-feishu-bg text-feishu-text-main font-sans overflow-hidden">
-      {/* Left Sidebar: Config */}
-      <div className="w-80 bg-white border-r border-feishu-border flex flex-col h-full shadow-[1px_0_4px_rgba(0,0,0,0.02)] z-10">
-        <div className="p-5 border-b border-feishu-border">
-          <h1 className="text-lg font-semibold text-feishu-text-main flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-feishu-blue" />
-            抽奖系统
-          </h1>
-        </div>
-        
-        <div className="p-5 flex-1 overflow-y-auto flex flex-col gap-6">
-          {/* Activity Selection */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-feishu-text-main">活动选择</label>
-            <div className="relative">
-              <select 
-                className="w-full appearance-none bg-white border border-feishu-border rounded-md px-3 py-2 text-sm text-feishu-text-main focus:outline-none focus:border-feishu-blue focus:ring-1 focus:ring-feishu-blue transition-colors cursor-pointer"
-                value={currentActivityId}
-                onChange={(e) => setCurrentActivityId(e.target.value)}
-                disabled={isDrawing}
-              >
-                {activities.map(act => (
-                  <option key={act.id} value={act.id}>{act.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-feishu-text-secondary absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Participants */}
-          <div className="flex flex-col gap-2 flex-1">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-feishu-text-main flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-feishu-text-secondary" />
-                参与名单
-              </label>
-              <span className="text-xs text-feishu-text-secondary bg-feishu-bg px-2 py-0.5 rounded-full border border-feishu-border">
-                共 {participantsList.length} 人
-              </span>
-            </div>
-            <textarea 
-              className="w-full flex-1 min-h-[200px] resize-none border border-feishu-border rounded-md p-3 text-sm text-feishu-text-main focus:outline-none focus:border-feishu-blue focus:ring-1 focus:ring-feishu-blue transition-colors leading-relaxed"
-              placeholder="请输入参与者名单，每行一个名字..."
-              value={participantsText}
-              onChange={(e) => setParticipantsText(e.target.value)}
-              disabled={isDrawing}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Center: Draw Area */}
-      <div className="flex-1 flex flex-col items-center justify-center relative">
-        <div className="w-[640px] h-[400px] bg-white rounded-2xl border border-feishu-border shadow-[0_4px_24px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative overflow-hidden transition-all">
-          <div className="text-[64px] font-bold text-feishu-text-main tracking-wider select-none">
-            {currentDisplay || "等待抽奖"}
-          </div>
-          
-          {currentDisplay && !isDrawing && winners.length > 0 && winners[winners.length - 1].name === currentDisplay && (
-            <div className="absolute top-10 text-feishu-green font-medium text-lg animate-fade-in flex items-center gap-2 bg-green-50 px-4 py-1.5 rounded-full border border-green-100">
-              🎉 恭喜中奖 🎉
-            </div>
-          )}
+    <Layout style={{ height: '100vh', background: 'var(--bg-body)' }}>
+      <Content 
+        className="raffle-container-soft"
+        onClick={handleContentClick}
+        style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          cursor: (participants.length > 0 && !isProcessing) ? 'pointer' : 'default',
+          position: 'relative',
+          userSelect: 'none',
+          height: '100vh',
+          width: '100vw'
+        }}
+      >
+        {/* 标题 */}
+        <div style={{ position: 'absolute', top: 40, left: 40, display: 'flex', alignItems: 'center' }}>
+           <img 
+             src="https://raw.githubusercontent.com/xjjm123123123/my_imge/main/img/Lark_Suite_logo_2022%201_%E5%89%AF%E6%9C%AC.png" 
+             alt="飞书" 
+             style={{ height: 40 }} 
+           />
         </div>
 
-        <div className="mt-12">
-          <button 
-            className={`flex items-center gap-2 px-10 py-4 rounded-md text-lg font-medium transition-all duration-200 ${
-              isDrawing 
-                ? 'bg-red-500 hover:bg-red-600 text-white shadow-[0_4px_12px_rgba(239,68,68,0.2)] active:scale-95' 
-                : 'bg-feishu-blue hover:bg-feishu-blue-hover text-white shadow-[0_4px_12px_rgba(51,112,255,0.2)] active:scale-95'
-            } ${participantsList.length === 0 ? 'opacity-50 cursor-not-allowed shadow-none hover:bg-feishu-blue' : ''}`}
-            onClick={isDrawing ? handleStop : handleStart}
-            disabled={participantsList.length === 0}
+        {/* 抽奖区域 */}
+        <div className={isDrawing ? 'floating' : ''} style={{ transition: 'transform 0.3s', marginTop: -60 }}>
+          <Card
+            style={{
+              width: 800,
+              height: 480,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+              overflow: 'hidden',
+              background: 'rgba(255, 255, 255, 0.85)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.6)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.08)'
+            }}
+            shadow="large"
           >
-            {isDrawing ? (
-              <>
-                <Square className="w-5 h-5 fill-current" />
-                停止滚动
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5 fill-current" />
-                开始抽奖
-              </>
+            <div 
+              className={isDrawing ? 'rolling-text' : ''}
+              style={{ 
+                fontSize: 96, 
+                fontWeight: 'bold', 
+                letterSpacing: 4, 
+                color: 'var(--text-title)',
+              }}
+            >
+              {currentDisplay || '等待抽奖'}
+            </div>
+            
+            {isLastWinner && (
+              <div className="winner-reveal" style={{ position: 'absolute', top: 60, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--function-success-fill-hover)', padding: '10px 32px', borderRadius: 999, border: '1px solid var(--function-success-line-default)' }}>
+                <span style={{ color: 'var(--function-success-content-default)', fontWeight: 600, fontSize: 24 }}>🎉 恭喜中奖 🎉</span>
+              </div>
             )}
-          </button>
+          </Card>
         </div>
-      </div>
 
-      {/* Right Sidebar: Winners */}
-      <div className="w-80 bg-white border-l border-feishu-border flex flex-col h-full shadow-[-1px_0_4px_rgba(0,0,0,0.02)] z-10">
-        <div className="p-5 border-b border-feishu-border flex items-center justify-between">
-          <h2 className="text-base font-semibold text-feishu-text-main">中奖记录</h2>
-          <div className="flex gap-1.5">
-            <button 
-              onClick={exportWinners}
-              className="p-1.5 text-feishu-text-secondary hover:text-feishu-blue hover:bg-blue-50 rounded-md transition-colors"
-              title="导出名单"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={clearWinners}
-              className="p-1.5 text-feishu-text-secondary hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
-              title="清空记录"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+        {/* 中央控制按钮 */}
+        <div style={{ marginTop: 64, zIndex: 10 }} onClick={e => e.stopPropagation()}>
+          <Button
+            type="primary"
+            size="extra-large"
+            color={isDrawing ? 'danger' : 'primary'}
+            icon={isDrawing ? <PauseFilled /> : <PlayFilled />}
+            onClick={isDrawing ? handleStop : handleStart}
+            disabled={participants.length === 0 || isProcessing}
+            style={{ minWidth: 200, height: 64, fontSize: 24, borderRadius: 32 }}
+          >
+            {isDrawing ? (isProcessing ? '处理中...' : '停止') : '开始'}
+          </Button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4">
-          {currentActivityWinners.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-feishu-text-secondary text-sm">
-              暂无中奖记录
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {currentActivityWinners.map((winner, idx) => (
-                <div key={winner.id} className="flex items-center justify-between p-3 bg-feishu-bg rounded-md border border-transparent hover:border-feishu-border transition-colors animate-fade-in">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-feishu-text-secondary w-5 text-center bg-white rounded-sm py-0.5 border border-feishu-border">
-                      {currentActivityWinners.length - idx}
-                    </span>
-                    <span className="text-sm font-medium text-feishu-text-main">
-                      {winner.name}
-                    </span>
-                  </div>
-                  <span className="text-xs text-feishu-text-secondary font-mono">
-                    {winner.time}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+
+        {/* 底部功能栏 */}
+        <div style={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          height: 80, 
+          background: 'rgba(255,255,255,0.85)', 
+          backdropFilter: 'blur(20px)',
+          borderTop: '1px solid rgba(0,0,0,0.05)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 40px',
+          zIndex: 100
+        }} onClick={e => e.stopPropagation()}>
+           {/* 左侧：活动选择 */}
+           <div style={{ width: 320, display: 'flex', alignItems: 'center', gap: 12 }}>
+             <span style={{ fontSize: 14, color: 'var(--text-caption)', whiteSpace: 'nowrap' }}>当前活动</span>
+             <Select 
+               style={{ width: '100%' }}
+               value={currentActivityName}
+               onChange={(val) => setCurrentActivityName(val as string)}
+               disabled={isDrawing || isProcessing}
+               options={activityOptions}
+               placeholder={loading ? '加载中...' : '暂无活动'}
+             />
+           </div>
+
+           {/* 中间：空 */}
+           <div></div>
+
+           {/* 右侧：管理按钮 */}
+           <Space size="medium">
+             <Button type="primary" color="danger" icon={<DeleteOutlined />} onClick={handleReset} disabled={isDrawing || isProcessing}>重置记录</Button>
+           </Space>
         </div>
-      </div>
-    </div>
+      </Content>
+    </Layout>
   );
 }
