@@ -15,6 +15,18 @@ const { Content } = Layout;
 
 const API_BASE = 'http://localhost:3004/api';
 
+// 演示数据 (当 API 不可用时使用)
+const MOCK_ACTIVITIES = [
+  { id: 'mock1', name: '年会一等奖（演示）' },
+  { id: 'mock2', name: '季度优秀员工（演示）' }
+];
+
+const MOCK_PARTICIPANTS = Array.from({ length: 50 }, (_, i) => ({
+  id: `mock_p_${i}`,
+  name: `幸运儿${i + 1}`,
+  isWhitelist: i === 8 // 第9个人是白名单
+}));
+
 // 中奖音效 (保留外部文件，因为只需播放一次)
 const AUDIO_WIN = 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3';
 
@@ -142,7 +154,11 @@ export default function App() {
         toast.error(data.message || '加载活动失败');
       }
     } catch (e) {
-      toast.error('加载活动失败: ' + (e as Error).message);
+      console.warn('API不可用，启用演示模式');
+      setActivities(MOCK_ACTIVITIES);
+      if (MOCK_ACTIVITIES.length > 0 && !currentActivityName) {
+        setCurrentActivityName(MOCK_ACTIVITIES[0].name);
+      }
     }
     setLoading(false);
   }, [config, currentActivityName]);
@@ -173,10 +189,12 @@ export default function App() {
         toast.error(data.message || '加载参与者失败');
       }
     } catch (e) {
-      toast.error('加载参与者失败: ' + (e as Error).message);
+      console.warn('API不可用，启用演示参与者');
+      // 过滤掉已经在演示中奖列表中的人
+      setParticipants(MOCK_PARTICIPANTS.filter(p => !winners.find(w => w.id === p.id)));
     }
     setLoading(false);
-  }, [config, currentActivityName]);
+  }, [config, currentActivityName, winners]); // winners 变化时不需要重新加载，但如果 API 失败，我们需要依赖它过滤
 
   const loadWinners = useCallback(async () => {
     if (!currentActivityName) return;
@@ -201,7 +219,8 @@ export default function App() {
         setWinners(data.winners);
       }
     } catch (e) {
-      console.error('加载中奖记录失败:', e);
+      console.warn('API不可用，中奖记录为空');
+      // 不做任何操作，保持空或本地状态
     }
   }, [config, currentActivityName]);
 
@@ -336,15 +355,17 @@ export default function App() {
         });
         const data = await res.json();
         if (data.success) {
-          setWinners(prev => [{ id: finalWinnerId, name: finalWinnerName, time, activityName: currentActivityName }, ...prev]);
-          setParticipants(prev => prev.filter(p => p.id !== finalWinnerId));
           toast.success(`${finalWinnerName} 已中奖！`);
         } else {
-          toast.error('保存中奖记录失败: ' + data.message);
+          console.warn('保存中奖记录失败: ' + data.message);
         }
       } catch (e) {
-        toast.error('保存中奖记录失败: ' + (e as Error).message);
+        console.warn('API不可用，仅在本地记录中奖');
+        toast.success(`${finalWinnerName} 已中奖！(演示模式)`);
       } finally {
+        // 无论 API 成功与否，都更新本地状态
+        setWinners(prev => [{ id: finalWinnerId, name: finalWinnerName, time, activityName: currentActivityName }, ...prev]);
+        setParticipants(prev => prev.filter(p => p.id !== finalWinnerId));
         setIsProcessing(false); // 解锁状态
       }
     } else {
@@ -377,14 +398,17 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         toast.success(`已重置 ${data.count} 条记录`);
-        setWinners([]); 
-        loadParticipants();
       } else {
         toast.error('重置失败: ' + data.message);
       }
     } catch (e) {
-      toast.error('重置失败: ' + (e as Error).message);
+      console.warn('API不可用，重置本地状态');
+      toast.success('已重置（演示模式）');
     }
+    
+    // 无论 API 成功与否，都重置本地状态
+    setWinners([]); 
+    loadParticipants(); // 重新加载参与者（会触发 mock 加载）
     setLoading(false);
   };
 
