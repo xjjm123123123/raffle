@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --color-feishu-blue: #3370FF;
+  --color-feishu-blue-hover: #2b5fd9;
+  --color-feishu-bg: #F5F6F7;
+  --color-feishu-border: #DEE0E3;
+  --color-feishu-text-main: #1F2329;
+  --color-feishu-text-secondary: #646A73;
+  --color-feishu-green: #34C724;
+
+  --animate-fade-in: fade-in 0.3s ease-out forwards;
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
