@@ -66,6 +66,7 @@ export default function App() {
   const [currentActivityName, setCurrentActivityName] = useState<string>('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [winners, setWinners] = useState<Winner[]>([]);
+  const [drawCount, setDrawCount] = useState(1);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false); // 新增处理状态，防止连点
   const [currentDisplay, setCurrentDisplay] = useState<string>('');
@@ -274,35 +275,47 @@ export default function App() {
       drawIntervalRef.current = null;
     }
 
-    // 决定最终中奖者
-    let finalWinnerId = currentWinnerId;
-    let finalWinnerName = currentDisplay;
-
     // 使用 Ref 获取最新的 participants
-    const currentParticipants = participantsRef.current;
-    const whitelistParticipants = currentParticipants.filter(p => p.isWhitelist);
+    let currentParticipants = [...participantsRef.current]; // 复制一份用于本地操作
+    const winnersToProcess: {id: string, name: string}[] = [];
     
-    // 如果当前选中的 ID 不在最新的列表中（理论上不应发生），重新选一个
-    if (!currentParticipants.find(p => p.id === finalWinnerId) && currentParticipants.length > 0) {
-        const fallback = currentParticipants[0];
-        finalWinnerId = fallback.id;
-        finalWinnerName = fallback.name;
-    }
+    // 决定本次抽多少人
+    const countToDraw = Math.min(drawCount, currentParticipants.length);
 
-    if (whitelistParticipants.length > 0) {
-      const randomWhitelist = whitelistParticipants[Math.floor(Math.random() * whitelistParticipants.length)];
-      finalWinnerId = randomWhitelist.id;
-      finalWinnerName = randomWhitelist.name;
-      
-      setCurrentDisplay(finalWinnerName);
-      setCurrentWinnerId(finalWinnerId);
-      
-      console.log(`[白名单生效] 选中: ${finalWinnerName}`);
-    } else {
-      console.log(`[普通抽奖] 选中: ${finalWinnerName}`);
+    // 循环抽取
+    for (let i = 0; i < countToDraw; i++) {
+        let winnerId = '';
+        let winnerName = '';
+
+        const whitelistParticipants = currentParticipants.filter(p => p.isWhitelist);
+        
+        if (whitelistParticipants.length > 0) {
+            const randomWhitelist = whitelistParticipants[Math.floor(Math.random() * whitelistParticipants.length)];
+            winnerId = randomWhitelist.id;
+            winnerName = randomWhitelist.name;
+            console.log(`[白名单生效] 选中: ${winnerName}`);
+        } else {
+            const randomIndex = Math.floor(Math.random() * currentParticipants.length);
+            const selected = currentParticipants[randomIndex];
+            winnerId = selected.id;
+            winnerName = selected.name;
+            console.log(`[普通抽奖] 选中: ${winnerName}`);
+        }
+
+        if (winnerId) {
+            winnersToProcess.push({ id: winnerId, name: winnerName });
+            // 从临时池中移除，避免重复中奖
+            currentParticipants = currentParticipants.filter(p => p.id !== winnerId);
+        }
     }
     
-    if (finalWinnerName && finalWinnerId) {
+    const finalWinnerNames = winnersToProcess.map(w => w.name).join('、');
+    
+    if (winnersToProcess.length > 0) {
+      setCurrentDisplay(finalWinnerNames);
+      // setCurrentWinnerId 仅用于单个中奖时的逻辑，这里取第一个或者忽略
+      setCurrentWinnerId(winnersToProcess[0].id);
+      
       // 播放中奖音效
       if (winAudioRef.current) {
         winAudioRef.current.currentTime = 0;
@@ -337,35 +350,48 @@ export default function App() {
       const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
       
       try {
-        const res = await fetch(`${API_BASE}/winners`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            appId: config.appId,
-            appSecret: config.appSecret,
-            appToken: config.appToken,
-            tableId: config.tableId,
-            recordId: finalWinnerId,
-            time: time,
-            fields: {
-              won: config.wonField,
-              time: config.timeField
-            }
-          })
-        });
-        const data = await res.json();
-        if (data.success) {
-          toast.success(`${finalWinnerName} 已中奖！`);
+        // 并行处理所有中奖者的 API 调用
+        const promises = winnersToProcess.map(winner => 
+            fetch(`${API_BASE}/winners`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    appId: config.appId,
+                    appSecret: config.appSecret,
+                    appToken: config.appToken,
+                    tableId: config.tableId,
+                    recordId: winner.id,
+                    time: time,
+                    fields: {
+                        won: config.wonField,
+                        time: config.timeField
+                    }
+                })
+            }).then(res => res.json())
+        );
+
+        const results = await Promise.all(promises);
+        const successCount = results.filter(r => r.success).length;
+
+        if (successCount === winnersToProcess.length) {
+          toast.success(`${finalWinnerNames} 已中奖！`);
         } else {
-          console.warn('保存中奖记录失败: ' + data.message);
+          console.warn(`部分中奖记录保存失败: ${successCount}/${winnersToProcess.length}`);
         }
       } catch (e) {
         console.warn('API不可用，仅在本地记录中奖');
-        toast.success(`${finalWinnerName} 已中奖！(演示模式)`);
+        toast.success(`${finalWinnerNames} 已中奖！(演示模式)`);
       } finally {
         // 无论 API 成功与否，都更新本地状态
-        setWinners(prev => [{ id: finalWinnerId, name: finalWinnerName, time, activityName: currentActivityName }, ...prev]);
-        setParticipants(prev => prev.filter(p => p.id !== finalWinnerId));
+        const newWinners = winnersToProcess.map(w => ({ 
+            id: w.id, 
+            name: w.name, 
+            time, 
+            activityName: currentActivityName 
+        }));
+        
+        setWinners(prev => [...newWinners, ...prev]);
+        setParticipants(prev => prev.filter(p => !winnersToProcess.find(w => w.id === p.id)));
         setIsProcessing(false); // 解锁状态
       }
     } else {
@@ -408,6 +434,7 @@ export default function App() {
     
     // 无论 API 成功与否，都重置本地状态
     setWinners([]); 
+    setCurrentDisplay('');
     loadParticipants(); // 重新加载参与者（会触发 mock 加载）
     setLoading(false);
   };
@@ -427,7 +454,7 @@ export default function App() {
     if (drawIntervalRef.current) clearInterval(drawIntervalRef.current);
   }, []);
 
-  const isLastWinner = currentDisplay && !isDrawing && winners.length > 0 && winners[0].name === currentDisplay;
+  const isLastWinner = currentDisplay && !isDrawing && winners.length > 0 && winners[0].name === currentDisplay.split('、')[0];
 
   const activityOptions = activities.map(act => ({
     value: act.name,
@@ -542,16 +569,35 @@ export default function App() {
           zIndex: 100
         }} onClick={e => e.stopPropagation()}>
            {/* 左侧：活动选择 */}
-           <div style={{ width: 320, display: 'flex', alignItems: 'center', gap: 12 }}>
-             <span style={{ fontSize: 14, color: 'var(--text-caption)', whiteSpace: 'nowrap' }}>当前活动</span>
-             <Select 
-               style={{ width: '100%' }}
-               value={currentActivityName}
-               onChange={(val) => setCurrentActivityName(val as string)}
-               disabled={isDrawing || isProcessing}
-               options={activityOptions}
-               placeholder={loading ? '加载中...' : '暂无活动'}
-             />
+           <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+             <div style={{ width: 320, display: 'flex', alignItems: 'center', gap: 12 }}>
+               <span style={{ fontSize: 14, color: 'var(--text-caption)', whiteSpace: 'nowrap' }}>当前活动</span>
+               <Select 
+                 style={{ width: '100%' }}
+                 value={currentActivityName}
+                 onChange={(val) => setCurrentActivityName(val as string)}
+                 disabled={isDrawing || isProcessing}
+                 options={activityOptions}
+                 placeholder={loading ? '加载中...' : '暂无活动'}
+               />
+             </div>
+
+             <div style={{ width: 180, display: 'flex', alignItems: 'center', gap: 12 }}>
+               <span style={{ fontSize: 14, color: 'var(--text-caption)', whiteSpace: 'nowrap' }}>每次抽取</span>
+               <Select 
+                 style={{ width: '100%' }}
+                 value={drawCount}
+                 onChange={(val) => setDrawCount(val as number)}
+                 disabled={isDrawing || isProcessing}
+                 options={[
+                     { label: '1人', value: 1 },
+                     { label: '2人', value: 2 },
+                     { label: '3人', value: 3 },
+                     { label: '5人', value: 5 },
+                     { label: '10人', value: 10 },
+                 ]}
+               />
+             </div>
            </div>
 
            {/* 中间：空 */}
